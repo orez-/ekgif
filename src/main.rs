@@ -26,6 +26,18 @@ fn interpolate(component1: u8, component2: u8, amount: f64) -> u8 {
     (((component2 as f64 - component1 as f64) * amount) + component1 as f64) as u8
 }
 
+/// Compute (a - b) % m, but using the modulo instead of the remainder.
+/// The distinction is in the negatives: when `a - b` is negative the `remainder` will be negative,
+/// but the modulo will be `remainder + m`
+fn sub_modulo(a: usize, b: usize, m: usize) -> usize {
+    if a >= b {
+        (a - b) % m
+    }
+    else {
+        (m - (b - a) % m) % m
+    }
+}
+
 
 fn main() {
     if atty::is(Stream::Stdout) {
@@ -41,6 +53,7 @@ fn main() {
     // TODO: parametrize?
     let ekg_width = 400;
     let ekg_speed = 20;
+    let ekg_frame_overlap = 5;
 
     let args: Vec<_> = env::args().collect();
     let mut empty_img = get_file_reader(&args[1]);
@@ -51,8 +64,8 @@ fn main() {
 
     let width_px = width as usize;
 
-    let frames = (width_px + ekg_width) / ekg_speed + 1;
-    eprintln!("frames: {:?}", frames);
+    let frames = (width_px + ekg_width) / ekg_speed - ekg_frame_overlap;
+    let cycle_width = frames * ekg_speed;
 
     let empty_img = empty_img.read_next_frame().unwrap().unwrap();
     let full_img = full_img.read_next_frame().unwrap().unwrap();
@@ -61,23 +74,26 @@ fn main() {
     let mut encoder = Encoder::new(&mut image, width, height, &[]).unwrap();
     encoder.set(Repeat::Infinite).unwrap();
 
+    eprintln!();
     for frame in 0..frames {
         let ekg_pos = frame * ekg_speed;
-        eprintln!("{:?}", ekg_pos);
+        eprint!("\r{}/{}", frame, frames);
         let pixels = empty_img.buffer.iter().zip(full_img.buffer.iter());
         let pixels_x = pixels.enumerate().map(|(i, pixel_tuple)| (i / 4 % width_px, pixel_tuple));
         let mut buffer: Vec<u8> = pixels_x.map(|(x, (pixel1, pixel2))| {
-            match ekg_pos.checked_sub(x) {
-                Some(distance) if distance < ekg_width =>
-                    interpolate(*pixel1, *pixel2, 1. - (distance as f64 / ekg_width as f64)),
-                _ => *pixel1,
+            let distance = sub_modulo(ekg_pos, x, cycle_width);
+            if distance < ekg_width {
+                interpolate(*pixel1, *pixel2, 1. - (distance as f64 / ekg_width as f64))
+            } else {
+                *pixel1
             }
         }).collect();
 
         let mut composite_frame = Frame::from_rgba(width, height, &mut buffer);
-        composite_frame.delay = 2;
+        composite_frame.delay = 4;
         encoder.write_frame(&composite_frame).unwrap();
     }
+    eprintln!("\r{}/{}", frames, frames);
 
     mem::drop(encoder);
     stdout().write_all(&image).unwrap();
