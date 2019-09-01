@@ -22,7 +22,9 @@ fn get_file_reader(filename: &str) -> Reader<File> {
 }
 
 
-fn interpolate(component1: u8, component2: u8, amount: f64) -> u8 {
+fn interpolate(component1: u8, component2: u8, mut amount: f64) -> u8 {
+    if amount > 0.9 { return component2; }
+    amount *= 0.8;
     (((component2 as f64 - component1 as f64) * amount) + component1 as f64) as u8
 }
 
